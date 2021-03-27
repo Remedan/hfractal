@@ -15,34 +15,36 @@
 
 module Main where
 
+import Data.Complex
 import Data.List
 import Data.Word
 
 import Data.ByteString
-import Data.Complex
-import Data.Colour
 import Data.Colour.RGBSpace
-import qualified Data.Colour.RGBSpace.HSL as HSL
-import Graphics.Gloss
+import Data.Colour.RGBSpace.HSL
+import Graphics.Gloss hiding (Point)
 
-stripes :: Int -> Int -> Int -> Int -> RGB Float
-stripes w h x y = HSL.hsl (fromIntegral ((x + y) `mod` 360)) 1 0.5
+data Point a = Point { x :: a, y :: a }
+data Dimension = Dimension { width :: Int, height :: Int}
 
-pixelToComplex :: Int -> Int -> Int -> Int -> Complex Float
-pixelToComplex w h x y =
+stripes :: Point Int -> RGB Float
+stripes point = hsl (fromIntegral ((x point + y point) `mod` 360)) 1 0.5
+
+pixelToComplex :: Dimension -> Point Int -> Complex Float
+pixelToComplex dim point =
     let rMin = -2
         rMax = 1
         iMin = -1
         iMax = 1
         transform a b c d = fromIntegral a / fromIntegral b * (d - c) + c
-    in transform x w rMin rMax :+ transform y h iMin iMax
+    in transform (x point) (width dim) rMin rMax :+ transform (y point) (height dim) iMin iMax
 
-mandelbrot :: Int -> Int -> Int -> Int -> RGB Float
-mandelbrot w h x y =
-    let c = pixelToComplex w h x y
+mandelbrot :: Dimension -> Point Int -> RGB Float
+mandelbrot dim point =
+    let c = pixelToComplex dim point
         mandelbrot' iter z
-          | iter >= 80 = HSL.hsl 0 0 0
-          | realPart (abs z) >= 2 = HSL.hsl (iter / 80 * 360) 1 0.5
+          | iter >= 80 = hsl 0 0 0
+          | realPart (abs z) >= 2 = hsl (iter / 80 * 360) 1 0.5
           | otherwise = mandelbrot' (iter + 1) (z * z + c)
      in mandelbrot' 0 (0 :+ 0)
 
@@ -51,20 +53,22 @@ rgbToWord rgb =
     let rgbWord = fmap (truncate . (*255)) rgb
      in [channelRed rgbWord, channelGreen rgbWord, channelBlue rgbWord, 255]
 
-genBitmap :: (Int -> Int -> Int -> Int -> RGB Float) -> Int -> Int -> ByteString
-genBitmap coloring w h =
+genBitmap :: Dimension -> (Point Int -> RGB Float) -> ByteString
+genBitmap dim coloring =
     pack $ mconcat (
         Data.List.unfoldr (
-            \i -> if i >= w * h then Nothing else Just (rgbToWord $ coloring w h (i `mod` w) (i `div` w), i + 1)
+            \i -> if i >= width dim * height dim
+                then Nothing
+                else Just (rgbToWord $ coloring $ Point (i `mod` width dim) (i `div` width dim), i + 1)
         ) 0
     )
 
-picture :: (Int -> Int -> Int -> Int -> RGB Float) -> Int -> Int -> Picture
-picture coloring w h = bitmapOfByteString w h (BitmapFormat BottomToTop PxRGBA) (genBitmap coloring w h) False
+picture :: Dimension -> (Point Int -> RGB Float) -> Picture
+picture dim coloring = bitmapOfByteString (width dim) (height dim) (BitmapFormat BottomToTop PxRGBA) (genBitmap dim coloring) False
 
 main :: IO ()
 main = do
-    let width = 1200
-        height = 800
-        coloring = mandelbrot
-     in display (InWindow "hfractal" (width, height) (0, 0)) white $ picture coloring width height
+    let dimension = Dimension 1200 800
+        -- coloring = stripes
+        coloring = mandelbrot dimension
+     in display (InWindow "hfractal" (width dimension, height dimension) (0, 0)) white $ picture dimension coloring
