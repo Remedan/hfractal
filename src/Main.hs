@@ -25,19 +25,23 @@ import Data.Colour.RGBSpace.HSL
 import Graphics.Gloss hiding (Point)
 
 data Point a = Point { x :: a, y :: a }
-data Dimension = Dimension { width :: Int, height :: Int}
+data Dimension = Dimension { width :: Int, height :: Int }
 
 stripes :: Point Int -> RGB Float
 stripes point = hsl (fromIntegral ((x point + y point) `mod` 360)) 1 0.5
 
 pixelToComplex :: Dimension -> Point Int -> Complex Float
 pixelToComplex dim point =
-    let rMin = -2
-        rMax = 1
-        iMin = -1
-        iMax = 1
-        transform a b c d = fromIntegral a / fromIntegral b * (d - c) + c
-    in transform (x point) (width dim) rMin rMax :+ transform (y point) (height dim) iMin iMax
+    let realRange = 3
+        centerR = -0.5
+        centerI = 0
+        wf = fromIntegral (width dim) :: Float
+        hf = fromIntegral (height dim) :: Float
+        xf = fromIntegral (x point) :: Float
+        yf = fromIntegral (y point) :: Float
+        r = ((xf - (wf / 2)) / wf) * realRange + centerR
+        i = ((yf - (hf / 2)) / hf) * (realRange / wf * hf) + centerI
+    in r :+ i
 
 mandelbrot :: Dimension -> Point Int -> RGB Float
 mandelbrot dim point =
@@ -55,11 +59,11 @@ rgbToWord rgb =
 
 genBitmap :: Dimension -> (Point Int -> RGB Float) -> ByteString
 genBitmap dim coloring =
-    pack $ mconcat (
+    Data.ByteString.concat (
         Data.List.unfoldr (
             \i -> if i >= width dim * height dim
                 then Nothing
-                else Just (rgbToWord $ coloring $ Point (i `mod` width dim) (i `div` width dim), i + 1)
+                else Just (pack $ rgbToWord $ coloring $ Point (i `mod` width dim) (i `div` width dim), i + 1)
         ) 0
     )
 
