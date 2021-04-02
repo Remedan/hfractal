@@ -24,26 +24,25 @@ import Data.Colour.RGBSpace
 import Data.Colour.RGBSpace.HSL
 import Graphics.Gloss hiding (Point)
 
-data Point a = Point { x :: a, y :: a }
-data Dimension = Dimension { width :: Int, height :: Int }
+type Point = (Int, Int)
+type Dimension = (Int, Int)
+type Coloring = Point -> RGB Float
 
-stripes :: Point Int -> RGB Float
-stripes point = hsl (fromIntegral ((x point + y point) `mod` 360)) 1 0.5
+stripes :: Coloring
+stripes (x, y) = hsl (fromIntegral ((x + y) `mod` 360)) 1 0.5
 
-pixelToComplex :: Dimension -> Point Int -> Complex Float
-pixelToComplex dim point =
+pixelToComplex :: Dimension -> Point -> Complex Float
+pixelToComplex (w, h) (x, y) =
     let realRange = 3
         centerR = -0.5
         centerI = 0
-        wf = fromIntegral (width dim) :: Float
-        hf = fromIntegral (height dim) :: Float
-        xf = fromIntegral (x point) :: Float
-        yf = fromIntegral (y point) :: Float
+        toFloat x = fromIntegral x :: Float
+        [wf, hf, xf, yf] = toFloat <$> [w, h, x, y]
         r = ((xf - (wf / 2)) / wf) * realRange + centerR
         i = ((yf - (hf / 2)) / hf) * (realRange / wf * hf) + centerI
     in r :+ i
 
-mandelbrot :: Dimension -> Point Int -> RGB Float
+mandelbrot :: Dimension -> Coloring
 mandelbrot dim point =
     let c = pixelToComplex dim point
         mandelbrot' iter z
@@ -57,22 +56,22 @@ rgbToWord rgb =
     let rgbWord = fmap (truncate . (*255)) rgb
      in [channelRed rgbWord, channelGreen rgbWord, channelBlue rgbWord, 255]
 
-genBitmap :: Dimension -> (Point Int -> RGB Float) -> ByteString
-genBitmap dim coloring =
+genBitmap :: Dimension -> Coloring -> ByteString
+genBitmap (w, h) coloring =
     Data.ByteString.concat (
         Data.List.unfoldr (
-            \i -> if i >= width dim * height dim
+            \i -> if i >= w * h
                 then Nothing
-                else Just (pack $ rgbToWord $ coloring $ Point (i `mod` width dim) (i `div` width dim), i + 1)
+                else Just (pack $ rgbToWord $ coloring (i `mod` w, i `div` w), i + 1)
         ) 0
     )
 
-picture :: Dimension -> (Point Int -> RGB Float) -> Picture
-picture dim coloring = bitmapOfByteString (width dim) (height dim) (BitmapFormat BottomToTop PxRGBA) (genBitmap dim coloring) False
+picture :: Dimension -> Coloring -> Picture
+picture (w, h) coloring = bitmapOfByteString w h (BitmapFormat BottomToTop PxRGBA) (genBitmap (w, h) coloring) False
 
 main :: IO ()
 main = do
-    let dimension = Dimension 1200 800
+    let dimension = (1200, 800)
         -- coloring = stripes
         coloring = mandelbrot dimension
-     in display (InWindow "hfractal" (width dimension, height dimension) (0, 0)) white $ picture dimension coloring
+     in display (InWindow "hfractal" dimension (0, 0)) white $ picture dimension coloring
