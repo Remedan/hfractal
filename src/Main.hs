@@ -27,15 +27,13 @@ import Graphics.Gloss
 import Graphics.Gloss.Interface.IO.Game
 
 type Pixel = (Int, Int)
-type Dimension = (Int, Int)
-type Coloring = World -> Pixel -> RGB Float
-data World = World { dimension :: Dimension
-                   , coloring :: Coloring
+data World = World { dimension :: (Int, Int)
+                   , coloring :: World -> Pixel -> RGB Float
                    , zoom :: Float
-                   , center :: (Float, Float)}
+                   , center :: (Float, Float) }
 
-stripes :: Coloring
-stripes _ (x, y) = hsl (fromIntegral ((x + y) `mod` 360)) 1 0.5
+stripes :: Pixel -> RGB Float
+stripes (x, y) = hsl (fromIntegral ((x + y) `mod` 360)) 1 0.5
 
 pixelToComplex :: World -> Pixel -> Complex Float
 pixelToComplex world (x, y) =
@@ -48,12 +46,12 @@ pixelToComplex world (x, y) =
         i = ((yf - (hf / 2)) / hf) * (realRange / wf * hf) + centerI
     in r :+ i
 
-mandelbrot :: Coloring
+mandelbrot :: World -> Pixel -> RGB Float
 mandelbrot world point =
     let c = pixelToComplex world point
         mandelbrot' iter z
           | iter >= 80 = hsl 0 0 0
-          | realPart (abs z) >= 2 = hsl (iter / 80 * 360) 1 0.5
+          | magnitude z >= 2 = hsl (iter / 80 * 360) 1 0.5
           | otherwise = mandelbrot' (iter + 1) (z * z + c)
      in mandelbrot' 0 (0 :+ 0)
 
@@ -67,7 +65,9 @@ genBitmap world =
     let (w, h) = dimension world
      in B.concat (
             L.unfoldr (
-                \i -> if i >= w * h then Nothing else Just (pack $ rgbToWord $ coloring world world (i `mod` w, i `div` w), i + 1)
+                \i -> if i >= w * h
+                      then Nothing
+                      else Just (pack $ rgbToWord $ coloring world world (i `mod` w, i `div` w), i + 1)
             ) 0
         )
 
@@ -77,21 +77,22 @@ draw world = let (w, h) = dimension world
 
 handleInput :: Event -> World -> IO World
 handleInput event world
-  | EventKey (Char 'q') Down _ _ <- event = exitSuccess
-  | EventKey (Char '+') Down _ _ <- event = return world { zoom = zoom world * 1.5 }
-  | EventKey (Char '-') Down _ _ <- event = return world { zoom = zoom world / 1.5 }
-  | EventKey (SpecialKey KeyUp) Down _ _ <- event = return $ pan world (0, 0.1)
-  | EventKey (SpecialKey KeyDown) Down _ _ <- event = return $ pan world (0, -0.1)
-  | EventKey (SpecialKey KeyRight) Down _ _ <- event = return $ pan world (0.1, 0)
-  | EventKey (SpecialKey KeyLeft) Down _ _ <- event = return $ pan world (-0.1, 0)
-  | otherwise = return world
-    where pan world (x, y) = world { center = (fst (center world) + (x / zoom world), snd (center world) + (y / zoom world)) }
+    | EventResize (w, h) <- event = return world { dimension = (w, h) }
+    | EventKey (Char 'q') Down _ _ <- event = exitSuccess
+    | EventKey (Char '+') Down _ _ <- event = return world { zoom = zoom world * 1.5 }
+    | EventKey (Char '-') Down _ _ <- event = return world { zoom = zoom world / 1.5 }
+    | EventKey (SpecialKey KeyUp) Down _ _ <- event = return $ pan world (0, 0.1)
+    | EventKey (SpecialKey KeyDown) Down _ _ <- event = return $ pan world (0, -0.1)
+    | EventKey (SpecialKey KeyRight) Down _ _ <- event = return $ pan world (0.1, 0)
+    | EventKey (SpecialKey KeyLeft) Down _ _ <- event = return $ pan world (-0.1, 0)
+    | otherwise = return world
+    where pan world (dx, dy) = world { center = (fst (center world) + (dx / zoom world), snd (center world) + (dy / zoom world)) }
 
 main :: IO ()
 main =
     let dimension = (900, 600)
+        -- coloring = \_ pixel -> stripes pixel
         coloring = mandelbrot
-        -- coloring = stripes
         world = World { dimension = dimension
                       , coloring = coloring
                       , zoom = 1
