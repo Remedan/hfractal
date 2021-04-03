@@ -16,35 +16,41 @@
 module Main where
 
 import Data.Complex
-import Data.List
+import Data.List as L
 import Data.Word
+import System.Exit
 
-import Data.ByteString
+import Data.ByteString as B
 import Data.Colour.RGBSpace
 import Data.Colour.RGBSpace.HSL
-import Graphics.Gloss hiding (Point)
+import Graphics.Gloss
+import Graphics.Gloss.Interface.IO.Game
 
-type Point = (Int, Int)
+type Pixel = (Int, Int)
 type Dimension = (Int, Int)
-type Coloring = Point -> RGB Float
+type Coloring = World -> Pixel -> RGB Float
+data World = World { dimension :: Dimension
+                   , coloring :: Coloring
+                   , zoom :: Float
+                   , center :: (Float, Float)}
 
 stripes :: Coloring
-stripes (x, y) = hsl (fromIntegral ((x + y) `mod` 360)) 1 0.5
+stripes _ (x, y) = hsl (fromIntegral ((x + y) `mod` 360)) 1 0.5
 
-pixelToComplex :: Dimension -> Point -> Complex Float
-pixelToComplex (w, h) (x, y) =
-    let realRange = 3
-        centerR = -0.5
-        centerI = 0
+pixelToComplex :: World -> Pixel -> Complex Float
+pixelToComplex world (x, y) =
+    let realRange = 3 / zoom world
+        (w, h) = dimension world
+        (centerR, centerI) = center world
         toFloat x = fromIntegral x :: Float
         [wf, hf, xf, yf] = toFloat <$> [w, h, x, y]
         r = ((xf - (wf / 2)) / wf) * realRange + centerR
         i = ((yf - (hf / 2)) / hf) * (realRange / wf * hf) + centerI
     in r :+ i
 
-mandelbrot :: Dimension -> Coloring
-mandelbrot dim point =
-    let c = pixelToComplex dim point
+mandelbrot :: Coloring
+mandelbrot world point =
+    let c = pixelToComplex world point
         mandelbrot' iter z
           | iter >= 80 = hsl 0 0 0
           | realPart (abs z) >= 2 = hsl (iter / 80 * 360) 1 0.5
@@ -53,25 +59,41 @@ mandelbrot dim point =
 
 rgbToWord :: RGB Float -> [Word8]
 rgbToWord rgb =
-    let rgbWord = fmap (truncate . (*255)) rgb
+    let rgbWord = truncate . (*255) <$> rgb
      in [channelRed rgbWord, channelGreen rgbWord, channelBlue rgbWord, 255]
 
-genBitmap :: Dimension -> Coloring -> ByteString
-genBitmap (w, h) coloring =
-    Data.ByteString.concat (
-        Data.List.unfoldr (
-            \i -> if i >= w * h
-                then Nothing
-                else Just (pack $ rgbToWord $ coloring (i `mod` w, i `div` w), i + 1)
-        ) 0
-    )
+genBitmap :: World -> ByteString
+genBitmap world =
+    let (w, h) = dimension world
+     in B.concat (
+            L.unfoldr (
+                \i -> if i >= w * h then Nothing else Just (pack $ rgbToWord $ coloring world world (i `mod` w, i `div` w), i + 1)
+            ) 0
+        )
 
-picture :: Dimension -> Coloring -> Picture
-picture (w, h) coloring = bitmapOfByteString w h (BitmapFormat BottomToTop PxRGBA) (genBitmap (w, h) coloring) False
+draw :: World -> IO Picture
+draw world = let (w, h) = dimension world
+              in return $ bitmapOfByteString w h (BitmapFormat BottomToTop PxRGBA) (genBitmap world) False
+
+handleInput :: Event -> World -> IO World
+handleInput event world
+  | EventKey (Char 'q') Down _ _ <- event = exitSuccess
+  | EventKey (Char '+') Down _ _ <- event = return world { zoom = zoom world * 1.5 }
+  | EventKey (Char '-') Down _ _ <- event = return world { zoom = zoom world / 1.5 }
+  | EventKey (SpecialKey KeyUp) Down _ _ <- event = return $ pan world (0, 0.1)
+  | EventKey (SpecialKey KeyDown) Down _ _ <- event = return $ pan world (0, -0.1)
+  | EventKey (SpecialKey KeyRight) Down _ _ <- event = return $ pan world (0.1, 0)
+  | EventKey (SpecialKey KeyLeft) Down _ _ <- event = return $ pan world (-0.1, 0)
+  | otherwise = return world
+    where pan world (x, y) = world { center = (fst (center world) + (x / zoom world), snd (center world) + (y / zoom world)) }
 
 main :: IO ()
-main = do
-    let dimension = (1200, 800)
+main =
+    let dimension = (900, 600)
+        coloring = mandelbrot
         -- coloring = stripes
-        coloring = mandelbrot dimension
-     in display (InWindow "hfractal" dimension (0, 0)) white $ picture dimension coloring
+        world = World { dimension = dimension
+                      , coloring = coloring
+                      , zoom = 1
+                      , center = (-0.5, 0) }
+     in playIO (InWindow "hfractal" dimension (0, 0)) white 100 world draw handleInput (\_ w -> return w)
